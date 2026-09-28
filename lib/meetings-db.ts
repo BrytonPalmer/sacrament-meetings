@@ -99,18 +99,68 @@ export async function getMeetingById(id: number): Promise<SacramentMeeting | nul
 }
 
 export async function addMeeting(
-  _meeting: Omit<SacramentMeeting, 'id'>
+  meeting: Omit<SacramentMeeting, 'id'>
 ): Promise<SacramentMeeting> {
-  throw new Error('addMeeting not yet implemented — coming in Week 04');
+  const rows = (await sql`
+    INSERT INTO meetings (
+      date, meeting_type, presiding, conducting, announcements,
+      opening_hymn, opening_prayer, ward_business, stake_business,
+      sacrament_hymn, speakers, closing_hymn, closing_prayer
+    ) VALUES (
+      ${meeting.date},
+      ${meeting.meetingType},
+      ${meeting.presiding},
+      ${meeting.conducting},
+      ${meeting.announcements ?? []}::text[],
+      ${JSON.stringify(meeting.openingHymn)}::jsonb,
+      ${meeting.openingPrayer},
+      ${JSON.stringify(meeting.wardBusiness)}::jsonb,
+      ${meeting.stakeBusiness},
+      ${JSON.stringify(meeting.sacramentHymn)}::jsonb,
+      ${JSON.stringify(meeting.speakers)}::jsonb,
+      ${JSON.stringify(meeting.closingHymn)}::jsonb,
+      ${meeting.closingPrayer}
+    )
+    RETURNING *
+  `) as unknown as MeetingRow[];
+
+  return mapRowToMeeting(rows[0]);
 }
 
+// NOTE: this now expects the full validated meeting (minus id), not a partial —
+// the create/edit form always submits the complete record, so a full REPLACE
+// is simpler and safer than a dynamic partial UPDATE.
 export async function updateMeeting(
-  _id: number,
-  _meeting: Partial<SacramentMeeting>
+  id: number,
+  meeting: Omit<SacramentMeeting, 'id'>
 ): Promise<SacramentMeeting | null> {
-  throw new Error('updateMeeting not yet implemented — coming in Week 04');
+  const rows = (await sql`
+    UPDATE meetings SET
+      date = ${meeting.date},
+      meeting_type = ${meeting.meetingType},
+      presiding = ${meeting.presiding},
+      conducting = ${meeting.conducting},
+      announcements = ${meeting.announcements ?? []}::text[],
+      opening_hymn = ${JSON.stringify(meeting.openingHymn)}::jsonb,
+      opening_prayer = ${meeting.openingPrayer},
+      ward_business = ${JSON.stringify(meeting.wardBusiness)}::jsonb,
+      stake_business = ${meeting.stakeBusiness},
+      sacrament_hymn = ${JSON.stringify(meeting.sacramentHymn)}::jsonb,
+      speakers = ${JSON.stringify(meeting.speakers)}::jsonb,
+      closing_hymn = ${JSON.stringify(meeting.closingHymn)}::jsonb,
+      closing_prayer = ${meeting.closingPrayer}
+    WHERE id = ${id}
+    RETURNING *
+  `) as unknown as MeetingRow[];
+
+  if (rows.length === 0) return null;
+  return mapRowToMeeting(rows[0]);
 }
 
-export async function deleteMeeting(_id: number): Promise<boolean> {
-  throw new Error('deleteMeeting not yet implemented — coming in Week 04');
+export async function deleteMeeting(id: number): Promise<boolean> {
+  const rows = (await sql`
+    DELETE FROM meetings WHERE id = ${id} RETURNING id
+  `) as unknown as { id: number }[];
+
+  return rows.length > 0;
 }

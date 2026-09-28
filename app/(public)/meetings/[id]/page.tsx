@@ -8,7 +8,13 @@ export default async function MeetingDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const meeting = await getMeetingById(Number(id));
+  const meetingId = Number(id);
+
+  if (!Number.isInteger(meetingId)) {
+    notFound();
+  }
+
+  const meeting = await getMeetingById(meetingId);
 
   if (!meeting) {
     notFound();
