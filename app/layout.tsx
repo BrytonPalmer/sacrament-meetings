@@ -10,8 +10,17 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Sacrament Meeting Planner",
+  metadataBase: new URL("https://sacrament-meetings-virid.vercel.app"),
+  title: {
+    default: "Sacrament Meeting Planner",
+    template: "%s | Sacrament Meeting Planner",
+  },
   description: "Plan, manage, and review sacrament meeting agendas",
+  openGraph: {
+    title: "Sacrament Meeting Planner",
+    description: "Plan, manage, and review sacrament meeting agendas",
+    type: "website",
+  },
 };
 
 export default function RootLayout({

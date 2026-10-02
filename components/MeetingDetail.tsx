@@ -4,17 +4,26 @@ interface MeetingDetailProps {
   meeting: SacramentMeeting;
 }
 
+// meeting.date is a plain 'YYYY-MM-DD' string. Passing that directly to
+// `new Date(...)` parses it as UTC midnight, which then prints as the
+// PREVIOUS day in any timezone behind UTC (e.g. Mountain Time) once
+// toLocaleDateString renders it in local time. Parsing the parts manually
+// and using the local-time Date constructor avoids that shift entirely.
+function formatMeetingDate(dateStr: string): string {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
 export default function MeetingDetail({ meeting }: MeetingDetailProps) {
   return (
     <div className="max-w-2xl mx-auto p-6 bg-white border rounded-lg">
-      <h2 className="text-2xl font-bold mb-1">
-        {new Date(meeting.date).toLocaleDateString('en-US', {
-          weekday: 'long',
-          month: 'long',
-          day: 'numeric',
-          year: 'numeric',
-        })}
-      </h2>
+      <h2 className="text-2xl font-bold mb-1">{formatMeetingDate(meeting.date)}</h2>
       <p className="text-sm text-gray-600 mb-6 capitalize">{meeting.meetingType} meeting</p>
 
       <dl className="space-y-4">
