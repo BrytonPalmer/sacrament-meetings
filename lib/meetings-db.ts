@@ -20,6 +20,30 @@ interface MeetingRow {
   closing_prayer: string;
 }
 
+// Every query below selects columns explicitly (never SELECT * or
+// RETURNING *) so that `date`, a native Postgres `date` column, comes back
+// as a plain 'YYYY-MM-DD' string via TO_CHAR rather than a JS Date object
+// the @neondatabase/serverless driver would otherwise construct. MeetingRow
+// has always claimed `date: string` — this makes that actually true, so
+// template-literal interpolation (e.g. in generateMetadata) doesn't produce
+// a full Date.toString() dump.
+const MEETING_COLUMNS = `
+  id,
+  TO_CHAR(date, 'YYYY-MM-DD') AS date,
+  meeting_type,
+  presiding,
+  conducting,
+  announcements,
+  opening_hymn,
+  opening_prayer,
+  ward_business,
+  stake_business,
+  sacrament_hymn,
+  speakers,
+  closing_hymn,
+  closing_prayer
+`;
+
 function mapRowToMeeting(row: MeetingRow): SacramentMeeting {
   return {
     id: row.id,
@@ -51,7 +75,7 @@ export async function getMeetings(options: {
   // API-route use case: exact date filter, no pagination
   if (date) {
     const rows = (await sql`
-      SELECT * FROM meetings WHERE date = ${date} ORDER BY date DESC
+      SELECT ${sql.unsafe(MEETING_COLUMNS)} FROM meetings WHERE date = ${date} ORDER BY date DESC
     `) as unknown as MeetingRow[];
     return { meetings: rows.map(mapRowToMeeting), total: rows.length };
   }
@@ -61,7 +85,7 @@ export async function getMeetings(options: {
     const term = `%${query.trim()}%`;
 
     const rows = (await sql`
-      SELECT * FROM meetings
+      SELECT ${sql.unsafe(MEETING_COLUMNS)} FROM meetings
       WHERE presiding ILIKE ${term}
          OR conducting ILIKE ${term}
          OR meeting_type ILIKE ${term}
@@ -83,7 +107,7 @@ export async function getMeetings(options: {
 
   // No filters: plain paginated list
   const rows = (await sql`
-    SELECT * FROM meetings
+    SELECT ${sql.unsafe(MEETING_COLUMNS)} FROM meetings
     ORDER BY date DESC
     LIMIT ${pageSize} OFFSET ${offset}
   `) as unknown as MeetingRow[];
@@ -93,7 +117,9 @@ export async function getMeetings(options: {
 }
 
 export async function getMeetingById(id: number): Promise<SacramentMeeting | null> {
-  const rows = (await sql`SELECT * FROM meetings WHERE id = ${id}`) as unknown as MeetingRow[];
+  const rows = (await sql`
+    SELECT ${sql.unsafe(MEETING_COLUMNS)} FROM meetings WHERE id = ${id}
+  `) as unknown as MeetingRow[];
   if (rows.length === 0) return null;
   return mapRowToMeeting(rows[0]);
 }
@@ -121,10 +147,16 @@ export async function addMeeting(
       ${JSON.stringify(meeting.closingHymn)}::jsonb,
       ${meeting.closingPrayer}
     )
-    RETURNING *
-  `) as unknown as MeetingRow[];
+    RETURNING id
+  `) as unknown as { id: number }[];
 
-  return mapRowToMeeting(rows[0]);
+  // Re-select through getMeetingById rather than RETURNING * so the date
+  // comes back as a formatted string here too, not a raw Date object.
+  const created = await getMeetingById(rows[0].id);
+  if (!created) {
+    throw new Error('Meeting was created but could not be re-fetched.');
+  }
+  return created;
 }
 
 // NOTE: this now expects the full validated meeting (minus id), not a partial —
@@ -150,11 +182,13 @@ export async function updateMeeting(
       closing_hymn = ${JSON.stringify(meeting.closingHymn)}::jsonb,
       closing_prayer = ${meeting.closingPrayer}
     WHERE id = ${id}
-    RETURNING *
-  `) as unknown as MeetingRow[];
+    RETURNING id
+  `) as unknown as { id: number }[];
 
   if (rows.length === 0) return null;
-  return mapRowToMeeting(rows[0]);
+
+  // Same reasoning as addMeeting: re-select for a clean date string.
+  return getMeetingById(rows[0].id);
 }
 
 export async function deleteMeeting(id: number): Promise<boolean> {

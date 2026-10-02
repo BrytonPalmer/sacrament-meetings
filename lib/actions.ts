@@ -3,6 +3,8 @@
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { AuthError } from 'next-auth';
+import { auth, signIn } from '@/auth';
 import {
   addMeeting,
   updateMeeting as updateMeetingInDb,
@@ -51,6 +53,25 @@ const MeetingFormSchema = z.object({
   closingHymn: HymnSchema,
   closingPrayer: z.string().trim().min(1, { message: 'Closing prayer name is required' }),
 });
+
+// ---------------------------------------------------------------------------
+// Auth guard — called at the top of every mutation action below.
+//
+// Middleware already blocks unauthenticated visits to /meetings/new and
+// /meetings/[id]/edit. This is a second, independent check inside the
+// Server Actions themselves, because deleteMeeting is invoked from a form
+// on the PUBLIC /meetings page, which middleware does not protect. Per the
+// "never trust the client" principle, a motivated user could otherwise call
+// these actions directly even with the UI hidden.
+// ---------------------------------------------------------------------------
+
+async function requireSession() {
+  const session = await auth();
+  if (!session?.user) {
+    throw new Error('You must be signed in to do that.');
+  }
+  return session;
+}
 
 // ---------------------------------------------------------------------------
 // FormData -> raw object (matches the flat input names used in MeetingForm)
@@ -115,13 +136,38 @@ function buildErrors(error: z.ZodError): Record<string, string[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Server Actions
+// Auth Server Action
+// ---------------------------------------------------------------------------
+
+export async function authenticate(
+  _prevState: string | undefined,
+  formData: FormData
+): Promise<string | undefined> {
+  try {
+    await signIn('credentials', formData);
+  } catch (error) {
+    if (error instanceof AuthError) {
+      switch (error.type) {
+        case 'CredentialsSignin':
+          return 'Invalid email or password.';
+        default:
+          return 'Something went wrong. Please try again.';
+      }
+    }
+    throw error; // re-throw so Next.js can handle the redirect
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Meeting Server Actions
 // ---------------------------------------------------------------------------
 
 export async function createMeeting(
   _prevState: MeetingFormState,
   formData: FormData
 ): Promise<MeetingFormState> {
+  await requireSession();
+
   const raw = parseMeetingFormData(formData);
   const result = MeetingFormSchema.safeParse(raw);
 
@@ -145,6 +191,8 @@ export async function updateMeeting(
   _prevState: MeetingFormState,
   formData: FormData
 ): Promise<MeetingFormState> {
+  await requireSession();
+
   const raw = parseMeetingFormData(formData);
   const result = MeetingFormSchema.safeParse(raw);
 
@@ -167,6 +215,8 @@ export async function updateMeeting(
 }
 
 export async function deleteMeeting(id: number): Promise<void> {
+  await requireSession();
+
   try {
     await deleteMeetingInDb(id);
   } catch (error) {
